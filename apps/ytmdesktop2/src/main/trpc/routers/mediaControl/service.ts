@@ -25,11 +25,7 @@ export default class MediaControlProvider extends BaseProvider implements AfterI
 	}
 
 	async BeforeStart() {
-		try {
-			app.commandLine.appendSwitch("in-progress-gpu");
-		} catch (error) {
-			this.logger.error("Failed to set command line switches:", error);
-		}
+		// Personal build: removed `in-progress-gpu` — not a Chromium switch (no-op).
 	}
 
 	/** xosms CalleeHandled: `(err, button)` */

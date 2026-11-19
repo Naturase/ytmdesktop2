@@ -1,6 +1,7 @@
 import { lockAppChromeZoom } from "@main/domain/uiZoom";
 import { defaultUrl, isDevelopment, isProduction } from "@main/infra/devUtils";
 import { getGoogleLoginUserAgent } from "@main/infra/userAgent";
+import { perfProfile } from "@shared/perfProfile";
 import { createLogger } from "@shared/utils/console";
 import translations from "@translations/index";
 import { BrowserWindow, BrowserWindowConstructorOptions, ipcMain, shell, WebContentsView, WebContentsViewConstructorOptions, WebPreferences } from "electron";
@@ -19,12 +20,13 @@ export const createApiView = async <T extends WebContentsView>(path: string, pos
 			contextIsolation: true,
 			webSecurity: isProduction,
 			allowRunningInsecureContent: !isProduction,
-			backgroundThrottling: false,
+			// Personal build: app-chrome views (toolbar, loading) may be throttled while hidden.
+			backgroundThrottling: perfProfile.throttleAuxViews,
 			preload: join(__dirname, "../preload/api.js"),
 			transparent: options?.transparent,
 		},
 	}) as T;
-	view.webContents.setBackgroundThrottling(false);
+	view.webContents.setBackgroundThrottling(perfProfile.throttleAuxViews);
 	lockAppChromeZoom(view.webContents);
 	await loadUrlOfWebContents(view.webContents, path);
 	if (postFunc) await Promise.resolve(postFunc(view));
@@ -50,7 +52,7 @@ export const createView = async <T extends WebContentsView>(
 			preload,
 		},
 	}) as T;
-	view.webContents.setBackgroundThrottling(false);
+	view.webContents.setBackgroundThrottling(options.backgroundThrottling ?? false);
 	if (postFunc) await Promise.resolve(postFunc(view));
 	const wnd = BrowserWindow.fromWebContents(view.webContents);
 	if (wnd) lockSizeToParent(wnd)(view);

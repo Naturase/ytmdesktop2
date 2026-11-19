@@ -1,11 +1,27 @@
-import { logger } from "@shared/utils/console";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { perfProfile } from "@shared/perfProfile";
 import { app, webContents } from "electron";
 
 /**
  * Personal build: periodic process metrics for measuring optimizations.
  * Enable with env `YTMD_METRICS=1` (optional `YTMD_METRICS_INTERVAL` in seconds, default 30).
+ * Written to stdout and to `<userData>/logs/metrics.log` (production logger drops info level).
  */
-const log = logger.child("metrics");
+let metricsFile: string | null = null;
+const write = (line: string) => {
+	const stamped = `${new Date().toISOString()} [metrics] ${line}`;
+	process.stdout.write(`${stamped}
+`);
+	if (!metricsFile) return;
+	try {
+		appendFileSync(metricsFile, `${stamped}
+`);
+	} catch {
+		/* ignore */
+	}
+};
+const log = { info: write };
 
 function labelFor(pid: number): string | undefined {
 	const wc = webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.getOSProcessId() === pid);
@@ -49,7 +65,15 @@ export function startMetricsLogging() {
 	};
 
 	app.whenReady().then(() => {
-		log.info(`metrics logging every ${intervalSec}s`);
+		try {
+			const dir = join(app.getPath("userData"), "logs");
+			mkdirSync(dir, { recursive: true });
+			metricsFile = join(dir, "metrics.log");
+		} catch {
+			metricsFile = null;
+		}
+		log.info(`metrics logging every ${intervalSec}s -> ${metricsFile ?? "stdout"}`);
+		log.info(`perf profile ${JSON.stringify(perfProfile)}`);
 		const timer = setInterval(dump, intervalSec * 1000) as unknown as { unref?: () => void };
 		timer.unref?.();
 	});

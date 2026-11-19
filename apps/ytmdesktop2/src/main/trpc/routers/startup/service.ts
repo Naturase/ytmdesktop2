@@ -3,6 +3,8 @@ import { AfterInit, BaseProvider, BeforeStart } from "@main/core/baseProvider";
 import { isDevelopment, isProduction } from "@main/infra/devUtils";
 import SettingsProvider from "@main/trpc/routers/settings/service";
 import { trackService } from "@main/trpc/routers/track";
+import { perfProfile } from "@shared/perfProfile";
+import { logger } from "@shared/utils/console";
 import { App, powerSaveBlocker } from "electron";
 import { basename } from "path";
 
@@ -20,14 +22,22 @@ export default class StartupProvider extends BaseProvider implements AfterInit, 
 	}
 	constructor(private app: App) {
 		super("startup");
+		const { legacy, v8HeapMb } = perfProfile;
 		if (platform.isWindows) {
 			app.commandLine.appendSwitch("enable-gpu-rasterization"); // may fix large playlist / ui only hang issue
-      app.commandLine.appendSwitch("ignore-gpu-blocklist"); // allow GPU rasterization on all devices + hardware acceleration
+			// Legacy forced GPU on blocklisted drivers; personal build lets Chromium decide.
+			if (legacy) app.commandLine.appendSwitch("ignore-gpu-blocklist");
 		}
-		// Keep renderers (esp. YouTube WebContentsView) off Chromium background/EcoQoS throttling
-		app.commandLine.appendSwitch("disable-renderer-backgrounding");
-		app.commandLine.appendSwitch("disable-background-timer-throttling");
-		app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+		if (legacy) {
+			// Upstream: keep every renderer off Chromium background/EcoQoS throttling.
+			app.commandLine.appendSwitch("disable-renderer-backgrounding");
+			app.commandLine.appendSwitch("disable-background-timer-throttling");
+			app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+		}
+		// Personal build: the YouTube view opts out per-webContents (backgroundThrottling: false) and
+		// audible renderers are never backgrounded, so playback is unaffected; hidden toolbar/tray/
+		// settings renderers may now be throttled and moved to efficiency cores (EcoQoS).
+		if (v8HeapMb > 0) app.commandLine.appendSwitch("js-flags", `--max-old-space-size=${v8HeapMb}`);
 		if (isDevelopment) app.commandLine.appendSwitch("disable-web-security");
 		// OS HiDPI / deviceScaleFactor (Retina, Windows 125%/150%). Do not force-device-scale-factor —
 		// that freezes layout at 1× and breaks high-DPI. Page zoom for app chrome is locked separately.
@@ -50,12 +60,18 @@ export default class StartupProvider extends BaseProvider implements AfterInit, 
 		this.app.commandLine.appendSwitch(
 			"disable-features",
 			[
-				"CalculateNativeWinOcclusion",
-				"IntensiveWakeUpThrottling",
-				"UseEcoQoSForBackgroundProcess",
+				// Personal build: occlusion detection + EcoQoS allowed (stop painting covered windows,
+				// efficiency cores for background renderers). Legacy disabled both.
+				legacy && "CalculateNativeWinOcclusion",
+				legacy && "UseEcoQoSForBackgroundProcess",
+				"IntensiveWakeUpThrottling", // 1 wake-up/min after 5 min hidden is too aggressive for queue logic
 				"MediaSessionService", // xosms / OS media keys — keep out of Chromium MediaSession
-			].join(","),
+				!legacy && "SpareRendererForSitePerProcess", // no pre-spawned idle renderer
+			]
+				.filter(Boolean)
+				.join(","),
 		);
+		logger.info("perf profile", perfProfile);
 	}
 	async BeforeStart() {
 		if (this.settingsInstance.instance.app.disableHardwareAccel) this.app.disableHardwareAcceleration();

@@ -4,6 +4,7 @@ import { toChromeUserAgent } from "@main/infra/userAgent";
 import { serverMain } from "@main/ipc/serverEvents";
 import { getLifecycleContext } from "@main/lifecycle";
 import { CHROMECAST_SETTING_KEY, chromecastArgvFor } from "@shared/chromecast/flag";
+import { perfProfile } from "@shared/perfProfile";
 import { isFeatureEnabled } from "@shared/personalBuild";
 import { logger } from "@shared/utils/console";
 import translations from "@translations/index";
@@ -86,7 +87,8 @@ export class WindowManager {
 				sandbox: false,
 				webSecurity: isProduction,
 				allowRunningInsecureContent: !isProduction,
-				backgroundThrottling: false,
+				// Root window only hosts views; personal build lets it be throttled.
+				backgroundThrottling: perfProfile.throttleAuxViews,
 				autoplayPolicy: "user-gesture-required",
 				enableBlinkFeatures: "FluentScrollbars,FluentOverlayScrollbar,OverlayScrollbar",
 				...(options?.webPreferences || {}),
@@ -173,7 +175,7 @@ export class WindowManager {
 				sandbox: false,
 				contextIsolation: true,
 				nodeIntegration: false,
-				backgroundThrottling: false,
+				backgroundThrottling: perfProfile.throttleYoutubeView,
 				additionalArguments: [chromecastArgvFor(isChromecastSettingEnabled())],
 			},
 		);
@@ -251,6 +253,24 @@ export class WindowManager {
 		// 	}, 2500);
 		// });
 		view.webContents.on("page-title-updated", (ev, title) => view.webContents.emit("window-title-updated", title));
+
+		// Personal build: recover from renderer crash/OOM (e.g. V8 heap limit) instead of a blank view.
+		const crashTimes: number[] = [];
+		view.webContents.on("render-process-gone", (_ev, details) => {
+			logger.error("youtube renderer gone", details);
+			if (details.reason === "clean-exit" || view.webContents.isDestroyed()) return;
+			const now = Date.now();
+			while (crashTimes.length && now - crashTimes[0] > 60_000) crashTimes.shift();
+			crashTimes.push(now);
+			if (crashTimes.length > 3) {
+				logger.error("youtube renderer crashed >3 times in 60s — not reloading");
+				return;
+			}
+			serverMain.emit("app.loadStart");
+			setTimeout(() => {
+				if (!view.webContents.isDestroyed()) void view.webContents.loadURL(lastLocation || defaultUrl);
+			}, 1000);
+		});
 	}
 
 	private async handleGoogleLogin(location: string, view: WebContentsView) {

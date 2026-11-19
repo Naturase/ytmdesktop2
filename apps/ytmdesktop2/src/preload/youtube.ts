@@ -1,4 +1,5 @@
 import { isChromecastEnabledFromArgv } from "@shared/chromecast/flag";
+import { perfProfile } from "@shared/perfProfile";
 import { logger } from "@shared/utils/console";
 import { contextBridge, webFrame } from "electron";
 import pkg from "../../package.json";
@@ -45,6 +46,33 @@ if (process.contextIsolated) {
 }
 
 domUtils.setupTrustedTypes();
+
+/**
+ * Personal build: YTM enumerates media devices at startup, which makes Chromium spawn a
+ * "Video Capture" utility process (~40 MB private). Music playback never needs capture devices.
+ * Disable with YTMD_ALLOW_MEDIA_DEVICES=1 (see @shared/perfProfile).
+ */
+const MEDIA_DEVICES_STUB = `(() => {
+  try {
+    const md = navigator.mediaDevices;
+    if (!md || md.__ytmdStubbed) return;
+    const deny = () => Promise.reject(new DOMException("Media devices disabled", "NotAllowedError"));
+    Object.defineProperty(md, "enumerateDevices", { value: () => Promise.resolve([]), configurable: true });
+    Object.defineProperty(md, "getUserMedia", { value: deny, configurable: true });
+    Object.defineProperty(md, "getDisplayMedia", { value: deny, configurable: true });
+    Object.defineProperty(md, "__ytmdStubbed", { value: true });
+  } catch (e) {}
+})();`;
+if (perfProfile.stubMediaDevices && isYoutubeMusicHost()) {
+	const frame = webFrame as typeof webFrame & {
+		executeJavaScriptInIsolatedWorld?: (worldId: number, scripts: { code: string }[]) => Promise<unknown>;
+	};
+	const run =
+		typeof frame.executeJavaScriptInIsolatedWorld === "function"
+			? frame.executeJavaScriptInIsolatedWorld(0, [{ code: MEDIA_DEVICES_STUB }])
+			: webFrame.executeJavaScript(MEDIA_DEVICES_STUB);
+	void Promise.resolve(run).catch((err) => log.warn("media devices stub failed", err));
+}
 
 async function injectYtmdAgent(): Promise<void> {
 	const frame = webFrame as typeof webFrame & {
