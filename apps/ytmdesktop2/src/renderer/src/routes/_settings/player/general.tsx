@@ -1,3 +1,4 @@
+import { isFeatureEnabled } from "@shared/personalBuild";
 import { createFileRoute } from "@tanstack/react-router";
 import { SettingsCheckbox } from "@/components/settings-checkbox";
 import { SettingsSelect } from "@/components/settings-select";
@@ -49,7 +50,7 @@ function PlayerGeneralSettingsPage() {
 						<SettingsCheckbox configKey="app.enableTaskbarProgress" description="Show playback progress on the taskbar.">
 							Enable Taskbar Progress
 						</SettingsCheckbox>
-						<SettingsCheckbox
+						{isFeatureEnabled("chromecast") && <SettingsCheckbox
 							configKey="player.chromecastEnabled"
 							description={
 								<span className="inline-flex items-center gap-2">
@@ -59,7 +60,7 @@ function PlayerGeneralSettingsPage() {
 							}
 						>
 							Enable Chromecast
-						</SettingsCheckbox>
+						</SettingsCheckbox>}
 					</FieldGroup>
 				</CardContent>
 			</Card>

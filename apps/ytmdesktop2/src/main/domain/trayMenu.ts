@@ -65,31 +65,7 @@ export const createTrayMenu = (provider: BaseProvider) => {
 		{
 			type: "separator",
 		},
-		{
-			type: "submenu",
-			label: "Discord",
-			submenu: [
-				{
-					label: "Show Presence",
-					type: "checkbox",
-					checked: sp.discord.enabled,
-					click: (item) => {
-						settings.set("discord.enabled", item.checked);
-					},
-				},
-				{
-					label: "Show Buttons",
-					type: "checkbox",
-					checked: sp.discord.buttons,
-					click: (item) => {
-						settings.set("discord.buttons", item.checked);
-					},
-				},
-			],
-		},
-		{
-			type: "separator",
-		},
+		// Personal build: Discord submenu removed (service not bundled).
 		{
 			type: "submenu",
 			label: "Themes",

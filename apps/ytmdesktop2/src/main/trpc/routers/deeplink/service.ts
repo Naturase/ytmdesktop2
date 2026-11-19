@@ -76,7 +76,7 @@ export default class DeeplinkProvider extends BaseProvider implements BeforeStar
 	private async handleLink(pending: YtmdParsed) {
 		if (pending.type === "integration") {
 			if (pending.provider === "lastfm" && pending.action === "callback") {
-				await this.getProvider("lastfm").handleAuthCallback(pending.token);
+				await this.getProvider("lastfm")?.handleAuthCallback(pending.token);
 				return;
 			}
 			this.logger.debug("ignored integration deeplink", pending.provider, pending.action);

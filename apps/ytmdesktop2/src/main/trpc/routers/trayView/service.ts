@@ -12,6 +12,8 @@ import { debounce } from "lodash-es";
 const TRAY_VIEW_WIDTH = 420;
 const TRAY_VIEW_HEIGHT = 168;
 const TRAY_VIEW_QUEUE_HEIGHT = 400;
+/** Personal build: destroy the hidden (unpinned) tray view after this idle time to free its renderer. */
+const TRAY_VIEW_IDLE_DESTROY_MS = 60_000;
 
 function clampToVisibleWorkArea(x: number, y: number, width: number, height: number): { x: number; y: number } {
 	const b = screen.getDisplayNearestPoint({ x, y }).workArea;
@@ -31,6 +33,7 @@ export default class TrayViewProvider extends BaseProvider implements AfterInit,
 	private persistMoved = debounce(() => this._saveWindowState?.(), 250);
 	private _settingsWired = false;
 	private _queueOpen = false;
+	private _idleDestroyTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(_app: App) {
 		super("trayView");
@@ -147,7 +150,6 @@ export default class TrayViewProvider extends BaseProvider implements AfterInit,
 			win.setResizable(false);
 			win.setMinimizable(false);
 			win.setMaximizable(false);
-			win.webContents.setBackgroundThrottling(false);
 
 			const { state, saveState, restored } = await wrapWindowHandler(win, "trayview", {
 				width: TRAY_VIEW_WIDTH,
@@ -191,6 +193,14 @@ export default class TrayViewProvider extends BaseProvider implements AfterInit,
 			win.webContents.on("before-input-event", (_ev, input) => {
 				if (input.type === "keyDown" && input.key === "Escape") dismiss();
 			});
+			win.on("hide", () => this.scheduleIdleDestroy(win));
+			win.on("show", () => this.cancelIdleDestroy());
+			win.once("closed", () => {
+				this.cancelIdleDestroy();
+				this.persistMoved.cancel();
+				this._saveWindowState = null;
+				if (this.windowContext.views.trayViewWindow === win) this.windowContext.views.trayViewWindow = undefined;
+			});
 
 			this.windowContext.views.trayViewWindow = win;
 			return win;
@@ -204,6 +214,22 @@ export default class TrayViewProvider extends BaseProvider implements AfterInit,
 		} finally {
 			this._ready = null;
 		}
+	}
+
+	private cancelIdleDestroy() {
+		if (this._idleDestroyTimer) clearTimeout(this._idleDestroyTimer);
+		this._idleDestroyTimer = null;
+	}
+
+	private scheduleIdleDestroy(win: BrowserWindow) {
+		this.cancelIdleDestroy();
+		if (this._pinned) return;
+		this._idleDestroyTimer = setTimeout(() => {
+			this._idleDestroyTimer = null;
+			if (win.isDestroyed() || win.isVisible() || this._pinned || isAppQuitting()) return;
+			this.logger.debug("trayView idle — destroying window");
+			win.destroy(); // skips "close" handler; "closed" clears references
+		}, TRAY_VIEW_IDLE_DESTROY_MS);
 	}
 
 	private emitState(active: boolean) {
@@ -245,6 +271,8 @@ export default class TrayViewProvider extends BaseProvider implements AfterInit,
 			this.applyPinFlags(win);
 			if (!this._pinned) this.dockToTray(win);
 			else this._saveWindowState?.();
+			if (this._pinned) this.cancelIdleDestroy();
+			else if (!win.isVisible()) this.scheduleIdleDestroy(win);
 		}
 		this.emitState(win?.isVisible() ?? false);
 		return this._pinned;
@@ -336,6 +364,7 @@ export default class TrayViewProvider extends BaseProvider implements AfterInit,
 	}
 
 	async OnDestroy() {
+		this.cancelIdleDestroy();
 		this.persistMoved.cancel();
 		this._saveWindowState?.();
 		const win = this.getWindow();

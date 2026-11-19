@@ -19,6 +19,7 @@ import {
 	RiSettings3Line,
 	RiShieldKeyholeLine,
 } from "@remixicon/react";
+import { isFeatureEnabled } from "@shared/personalBuild";
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { type ComponentType, type CSSProperties, memo, Suspense, useEffect, useState } from "react";
 import LogoIcon from "@/assets/logo.svg?react";
@@ -59,7 +60,7 @@ const tabs = {
 
 const playerSubs = [
 	{ to: "/player/general", label: "General", icon: RiMusic2Line },
-	{ to: "/player/lyrics", label: "Lyrics", icon: RiChatQuoteLine },
+	...(isFeatureEnabled("lyrics") ? ([{ to: "/player/lyrics", label: "Lyrics", icon: RiChatQuoteLine }] as const) : []),
 	{ to: "/player/shortcuts", label: "Shortcuts", icon: RiCommandLine },
 ] as const;
 
@@ -280,9 +281,9 @@ function SettingsLayout() {
 									<SettingsNavItem {...tabs.generic} />
 									<PlayerNav />
 									<AppearanceNav />
-									<SettingsNavItem {...tabs.discord} />
-									<SettingsNavItem {...tabs.lastfm} />
-									<ApiIntegrationsNav />
+									{isFeatureEnabled("discord") && <SettingsNavItem {...tabs.discord} />}
+									{isFeatureEnabled("lastfm") && <SettingsNavItem {...tabs.lastfm} />}
+									{isFeatureEnabled("api") && <ApiIntegrationsNav />}
 									<SettingsNavItem {...tabs.about} />
 								</SidebarMenu>
 							</SidebarGroupContent>

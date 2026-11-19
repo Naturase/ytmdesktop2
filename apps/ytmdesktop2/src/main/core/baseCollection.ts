@@ -13,7 +13,20 @@ export interface CollectionItem {
 export type LifecycleEvent = "OnInit" | "OnDestroy" | "AfterInit" | "BeforeStart";
 
 const GLOB_PATTERNS = {
-	services: () => import.meta.glob("../trpc/routers/*/service.ts", { eager: true }),
+	// Personal build: disabled services are not bundled (see @shared/personalBuild).
+	services: () =>
+		import.meta.glob(
+			[
+				"../trpc/routers/*/service.ts",
+				"!../trpc/routers/discord/service.ts",
+				"!../trpc/routers/lastfm/service.ts",
+				"!../trpc/routers/api/service.ts",
+				"!../trpc/routers/lyrics/service.ts",
+				"!../trpc/routers/chromecast/service.ts",
+				"!../trpc/routers/touchbar/service.ts", // macOS only
+			],
+			{ eager: true },
+		),
 	providers: () => import.meta.glob("../providers/*.provider.ts", { eager: true }),
 	events: () => import.meta.glob("../events/*.event.ts", { eager: true }),
 } as const;

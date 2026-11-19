@@ -1,5 +1,5 @@
-import tailwindcss from "@tailwindcss/vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react-swc";
 import { defineConfig } from "electron-vite";
@@ -59,7 +59,8 @@ const bundleIntoMain = ["hono", "@hono/node-server", "ws"];
  * Measured (prod minify): react-vendor ~584KB + lyrics.plugin ~20KB (was ~1.6MB monolithic).
  */
 const bundleIntoPreload = ["react", "react-dom", "react/jsx-runtime", "scheduler"];
-const youtubeClientPlugins = glob.globSync("./src/renderer-plugins/youtube/*.plugin.ts").map((file) => {
+// Personal build: lyrics plugin not built (see src/shared/personalBuild.ts).
+const youtubeClientPlugins = glob.globSync("./src/renderer-plugins/youtube/*.plugin.ts", { ignore: ["**/lyrics.plugin.ts"] }).map((file) => {
 	const name = basename(file, ".ts");
 	return [name, file];
 });

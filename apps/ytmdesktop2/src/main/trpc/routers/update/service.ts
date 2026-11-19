@@ -6,8 +6,8 @@ import { isDevelopment, isProduction } from "@main/infra/devUtils";
 import SettingsProvider from "@main/trpc/routers/settings/service";
 import { createAppWindow } from "@main/windows/windowUtils";
 import { cacheWithFile } from "@shared/utils/filecache";
-import { githubRepoFetch } from "@shared/utils/github";
 import type { GithubRelease } from "@shared/utils/github";
+import { githubRepoFetch } from "@shared/utils/github";
 import type { ProgressInfo, ReleaseNoteEntry, UpdateChannel, UpdateInfo } from "@shared/utils/updater";
 import {
 	electronUpdaterChannelFor,
@@ -21,6 +21,8 @@ import { clamp } from "lodash-es";
 import semver from "semver";
 
 const UPDATE_CHECK_INTERVAL_MS = 1000 * 60 * 15;
+/** Personal build: never check/download upstream releases (would overwrite local changes). */
+const UPDATES_DISABLED = true;
 const GITHUB_FEED = (() => {
 	const [owner, repo] = String(import.meta.env.VITE_GITHUB_REPOSITORY ?? "").split("/", 2);
 	return { owner, repo };
@@ -386,7 +388,7 @@ export default class UpdateProvider extends BaseProvider implements BeforeStart,
 		});
 		if (devShowUpdateDialog) autoUpdater.forceDevUpdateConfig = true;
 		autoUpdater.autoDownload = false;
-		autoUpdater.autoInstallOnAppQuit = isProduction;
+		autoUpdater.autoInstallOnAppQuit = isProduction && !UPDATES_DISABLED;
 		autoUpdater.fullChangelog = false;
 		this.applyUpdateChannel();
 
@@ -426,6 +428,10 @@ export default class UpdateProvider extends BaseProvider implements BeforeStart,
 	}
 
 	async AfterInit() {
+		if (UPDATES_DISABLED) {
+			this.logger.info("updates disabled (personal build)");
+			return;
+		}
 		this.settingsInstance.onSettingChange("app.channel", () => this.onChannelChanged(), { debounce: 250 });
 		this.settingsInstance.onSettingChange("app.autoupdate", (enabled) => this.onAutoUpdateToggled(!!enabled), {
 			debounce: 250,
@@ -532,7 +538,7 @@ export default class UpdateProvider extends BaseProvider implements BeforeStart,
 	}
 
 	onDownloadUpdate(): [Promise<string[]> | null, (() => void) | null] {
-		if (!this._updateAvailable || this._updateDownloaded || this._updateQueuedForInstall) {
+		if (UPDATES_DISABLED || !this._updateAvailable || this._updateDownloaded || this._updateQueuedForInstall) {
 			return [null, null];
 		}
 
@@ -573,6 +579,7 @@ export default class UpdateProvider extends BaseProvider implements BeforeStart,
 	async onCheckUpdate(options: { showDialog?: boolean; forceDialog?: boolean } = {}) {
 		const showDialog = options.showDialog ?? true;
 		const forceDialog = options.forceDialog ?? false;
+		if (UPDATES_DISABLED) return null;
 		try {
 			const result = await this._checkUpdate();
 			if (showDialog && result.updateInfo) {

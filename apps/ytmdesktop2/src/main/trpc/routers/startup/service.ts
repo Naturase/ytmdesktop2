@@ -2,6 +2,7 @@ import { platform } from "@electron-toolkit/utils";
 import { AfterInit, BaseProvider, BeforeStart } from "@main/core/baseProvider";
 import { isDevelopment, isProduction } from "@main/infra/devUtils";
 import SettingsProvider from "@main/trpc/routers/settings/service";
+import { trackService } from "@main/trpc/routers/track";
 import { App, powerSaveBlocker } from "electron";
 import { basename } from "path";
 
@@ -58,13 +59,29 @@ export default class StartupProvider extends BaseProvider implements AfterInit, 
 	}
 	async BeforeStart() {
 		if (this.settingsInstance.instance.app.disableHardwareAccel) this.app.disableHardwareAcceleration();
-		if (!platform.isMacOS) {
-			powerSaveBlocker.start("prevent-app-suspension"); // app suspension on mac prevents sleep
+	}
+	/** Personal build: block system sleep only while audio is playing (was: always while app open). */
+	private _sleepBlockerId: number | null = null;
+	private _sleepBlockerWired = false;
+	private setSleepBlocked(blocked: boolean) {
+		if (blocked) {
+			if (this._sleepBlockerId !== null && powerSaveBlocker.isStarted(this._sleepBlockerId)) return;
+			this._sleepBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+		} else if (this._sleepBlockerId !== null) {
+			if (powerSaveBlocker.isStarted(this._sleepBlockerId)) powerSaveBlocker.stop(this._sleepBlockerId);
+			this._sleepBlockerId = null;
 		}
+	}
+	private wireSleepBlocker() {
+		if (platform.isMacOS || this._sleepBlockerWired) return;
+		this._sleepBlockerWired = true;
+		trackService.onTrackStateChange((state) => this.setSleepBlocked(!!state?.playing), { immediate: true });
+		this.app.once("before-quit", () => this.setSleepBlocked(false));
 	}
 	private get startArgs() {
 		return ["--processStart", `"${basename(process.execPath)}"`, "--startup"];
 	}
+	private _autostartWired = false;
 	get isStartupContext() {
 		return !!process.argv.find((arg) => arg === "--startup");
 	}
@@ -72,6 +89,9 @@ export default class StartupProvider extends BaseProvider implements AfterInit, 
 		return !!process.argv.find((arg) => arg === "--minimized");
 	}
 	async AfterInit() {
+		this.wireSleepBlocker();
+		if (this._autostartWired) return;
+		this._autostartWired = true;
 		this.settingsInstance.onSettingChange("app.autostart", (enabled) => void this.onAutoStartToggle("app.autostart", enabled as boolean), {
 			debounce: 1000,
 		});

@@ -1,3 +1,4 @@
+import { version as releaseVersion } from "node:os";
 import { AfterInit, BaseProvider, BeforeStart } from "@main/core/baseProvider";
 import { applyYoutubeZoom, applyZoomToWebContents, clampZoomFactor } from "@main/domain/uiZoom";
 import { requestAppRelaunch } from "@main/handlers/quitHandler";
@@ -11,7 +12,6 @@ import { centerWindowOnParent, createAppDialogWindow, createAppWindow, shortcutO
 import { stripUndefined } from "@shared/utils/object";
 import { App, BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, shell } from "electron";
 import { debounce } from "lodash-es";
-import { version as releaseVersion } from "node:os";
 
 const STATE_PAUSE_TIME = 30e4;
 const TEST_RESTART_NEEDED_DIALOG = isDevelopment && process.env.TEST_RESTART_NEEDED_DIALOG === "1";
@@ -160,7 +160,7 @@ export default class AppProvider extends BaseProvider implements AfterInit, Befo
         this._blurTimestamp = new Date();
         this.windowFocus();
       } else {
-        this.discord.disable();
+        this.discord?.disable();
       }
     }, STATE_PAUSE_TIME);
   }
@@ -174,7 +174,8 @@ export default class AppProvider extends BaseProvider implements AfterInit, Befo
       clearTimeout(this._blurAfkHandle);
       this._blurAfkHandle = null;
     }
-    if (this.discord.settingsEnabled && !this.discord.isConnected) void this.discord.enable();
+    const discord = this.discord;
+    if (discord?.settingsEnabled && !discord.isConnected) void discord.enable();
   }
 
   private __toggleSentryLogging(_key: string, value: boolean) {
@@ -213,6 +214,9 @@ export default class AppProvider extends BaseProvider implements AfterInit, Befo
         shortcutOnWindow(win, "Escape", () => {
           win.close();
         });
+        win.once("closed", () => {
+          if ((this.windowContext.views.settingsWindow as any) === win) this.windowContext.views.settingsWindow = undefined as any;
+        });
         this.windowContext.views.settingsWindow = win as any;
         return win;
       });
@@ -234,7 +238,8 @@ export default class AppProvider extends BaseProvider implements AfterInit, Befo
     }
     if (this._windowMap.has(windowName)) {
       const window = this._windowMap.get(windowName);
-      if (window) {
+      if (window && window.isDestroyed()) this._windowMap.delete(windowName);
+      else if (window) {
         centerWindowOnParent(window, this.windowContext.main);
         if (window.isMinimized()) window.restore();
         if (!window.isVisible()) {
@@ -247,6 +252,9 @@ export default class AppProvider extends BaseProvider implements AfterInit, Befo
       }
     }
     const window = await createAppWindow({ ...windowOptions, parent: this.windowContext.main, path: "/" + windowName });
+    window.once("closed", () => {
+      if (this._windowMap.get(windowName) === window) this._windowMap.delete(windowName);
+    });
     this._windowMap.set(windowName, window);
   }
 

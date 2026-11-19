@@ -1,9 +1,10 @@
 import { applyYoutubeZoom, bindYoutubeWebContents, TOOLBAR_HEIGHT } from "@main/domain/uiZoom";
-import { getLifecycleContext } from "@main/lifecycle";
-import { chromecastArgvFor, CHROMECAST_SETTING_KEY } from "@shared/chromecast/flag";
 import { defaultUrl, isDevelopment, isProdDebug, isProduction } from "@main/infra/devUtils";
 import { toChromeUserAgent } from "@main/infra/userAgent";
 import { serverMain } from "@main/ipc/serverEvents";
+import { getLifecycleContext } from "@main/lifecycle";
+import { CHROMECAST_SETTING_KEY, chromecastArgvFor } from "@shared/chromecast/flag";
+import { isFeatureEnabled } from "@shared/personalBuild";
 import { logger } from "@shared/utils/console";
 import translations from "@translations/index";
 import { app, BrowserWindow, BrowserWindowConstructorOptions, WebContentsView } from "electron";
@@ -14,7 +15,9 @@ import { createWindowContext } from "./mappedWindow";
 import { createApiView, createView, googleLoginPopup } from "./view";
 import { pushWindowStates } from "./webContentUtils";
 import { getBoundsWithScaleFactor, wrapWindowHandler } from "./windowUtils";
+
 function isChromecastSettingEnabled(): boolean {
+	if (!isFeatureEnabled("chromecast")) return false;
 	try {
 		const settings = getLifecycleContext().getProvider("settings") as { get?: (key: string, fallback?: boolean) => boolean };
 		return !!settings?.get?.(CHROMECAST_SETTING_KEY, false);
@@ -271,22 +274,48 @@ export class WindowManager {
 	}
 	private setupViewEvents() {
 		const handleLoadEnd = () => {
-			if (!this.mainWindow || !this.loadingView || !this.views) return;
-			this.mainWindow.contentView.removeChildView(this.loadingView);
-			this.mainWindow.contentView.addChildView(this.views.toolbarView);
+			if (!this.mainWindow || !this.views) return;
 			this._youtubeReady = true;
+			this.destroyLoadingView();
+			this.mainWindow.contentView.addChildView(this.views.toolbarView);
 			applyYoutubeZoom();
 		};
-		const handleLoadStart = debounce(() => {
-			if (!this.mainWindow || !this.loadingView || !this.views) return;
-			if (!this.mainWindow.contentView.children?.find((x) => this.loadingView?.webContents && x === this.loadingView)) {
+		const handleLoadStart = debounce(async () => {
+			if (!this.mainWindow || this.mainWindow.isDestroyed() || !this.views) return;
+			this._youtubeReady = false;
+			// Personal build: loading view is destroyed after load (frees a renderer); recreate on demand.
+			if (!this.loadingView || this.loadingView.webContents.isDestroyed()) {
+				this.loadingView = null;
+				this.loadingViewPromise ??= this.createLoadingView().finally(() => {
+					this.loadingViewPromise = null;
+				});
+				const view = await this.loadingViewPromise;
+				// Load may have finished while the view was being created.
+				if (this._youtubeReady || this.loadingView) {
+					if (view !== this.loadingView) {
+						if (!this.mainWindow.isDestroyed()) this.mainWindow.contentView.removeChildView(view);
+						if (!view.webContents.isDestroyed()) view.webContents.close();
+					}
+					return;
+				}
+				this.loadingView = view;
+				return; // createLoadingView already attached it on top
+			}
+			if (!this.mainWindow.contentView.children?.find((x) => x === this.loadingView)) {
 				this.mainWindow.contentView.addChildView(this.loadingView);
 			}
-			this._youtubeReady = false;
 		}, 100);
 
 		serverMain.on("app.loadEnd", handleLoadEnd);
 		serverMain.on("app.loadStart", handleLoadStart);
+	}
+	private loadingViewPromise: Promise<WebContentsView> | null = null;
+	private destroyLoadingView() {
+		const view = this.loadingView;
+		this.loadingView = null;
+		if (!view) return;
+		if (this.mainWindow && !this.mainWindow.isDestroyed()) this.mainWindow.contentView.removeChildView(view);
+		if (!view.webContents.isDestroyed()) view.webContents.close();
 	}
 	private fromMaximized = false;
 	private setupWindowEvents() {

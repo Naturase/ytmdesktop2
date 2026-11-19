@@ -647,10 +647,7 @@ export class TrackService {
 
 	private async pushLastFm(track: TrackData, opts?: { forceNowPlaying?: boolean }) {
 		const lastfm = this.getLastFm();
-		if (!lastfm) {
-			this.logger.warn("lastfm provider missing — skip now-playing");
-			return;
-		}
+		if (!lastfm) return; // personal build: lastfm service not bundled
 
 		const lastfmState = lastfm.getState();
 		const videoId = track.video.videoId;

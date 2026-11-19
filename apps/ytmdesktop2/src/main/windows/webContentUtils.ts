@@ -13,6 +13,7 @@ export function lockSizeToParent(win: BrowserWindow, options: LockSizeOptions = 
 	return (view: WebContentsView) => {
 		const lockSides = options?.resize ?? "both";
 		const handleResize = (_ev: any) => {
+			if (win.isDestroyed() || view.webContents.isDestroyed()) return;
 			const { width, height } = win.getContentBounds();
 			const { x, y, width: viewWidth, height: viewHeight } = view.getBounds();
 			const newWidth = width - x;
@@ -31,12 +32,16 @@ export function lockSizeToParent(win: BrowserWindow, options: LockSizeOptions = 
 		win.on("will-resize", handleResize);
 		win.on("maximize", handleStates);
 		win.on("unmaximize", handleStates);
-		win.once("close", () => {
+		const detach = () => {
+			if (win.isDestroyed()) return;
 			win.off("show", handleStates);
 			win.off("will-resize", handleResize);
 			win.off("maximize", handleStates);
 			win.off("unmaximize", handleStates);
-		});
+		};
+		win.once("close", detach);
+		// Views can be destroyed before their window (e.g. loading view after first load).
+		view.webContents.once("destroyed", detach);
 	};
 }
 export function getWindowState(win: BrowserWindow) {
@@ -94,6 +99,7 @@ export function syncWindowStateToWebContents(win: BrowserWindow) {
 	return (view: WebContents) => {
 		const handles: Record<string, any[]> = {};
 		const handleManualPush = (contentsId?: number) => {
+			if (!view || view.isDestroyed() || win.isDestroyed()) return;
 			handleManualPushLog.debug({ contentsId }, `pushing window state update for ${view.getTitle()}`);
 			if (!contentsId) return handleStates();
 			if (!view || view.isDestroyed() || view.id !== contentsId) return;
@@ -101,6 +107,7 @@ export function syncWindowStateToWebContents(win: BrowserWindow) {
 		};
 		const handleStates = () => {
 			if (hidden) return;
+			if (!view || view.isDestroyed()) return;
 			const state = getWindowState(win);
 			if (!state) {
 				serverMain.emit("windowState", state);
@@ -131,12 +138,21 @@ export function syncWindowStateToWebContents(win: BrowserWindow) {
 		if (platform.isMacOS) {
 			subs.push(...["enter-full-screen", "leave-full-screen"].map((d) => fromMainEvent(win, d).pipe(delay(50)).subscribe(handleStates)));
 		}
-		win.once("close", () => {
-			Object.entries(handles).forEach(([k, h]) => {
-				h.forEach((handle) => win.off(k as any, handle));
-			});
+		// win.destroy() (e.g. idle tray view) skips "close" — also clean up on "closed"/view "destroyed".
+		let cleanedUp = false;
+		const cleanup = () => {
+			if (cleanedUp) return;
+			cleanedUp = true;
+			if (!win.isDestroyed()) {
+				Object.entries(handles).forEach(([k, h]) => {
+					h.forEach((handle) => win.off(k as any, handle));
+				});
+			}
 			subs.forEach((s) => !s.closed && s.unsubscribe());
-		});
+		};
+		win.once("close", cleanup);
+		win.once("closed", cleanup);
+		view.once("destroyed", cleanup);
 
 		return () => handleStates();
 	};

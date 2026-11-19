@@ -3,6 +3,7 @@ import { attachQuitHandler } from "@main/handlers/quitHandler";
 import { isAppQuitting } from "@main/handlers/quitPolicy";
 import { attachTrayState } from "@main/handlers/trayState";
 import { initializeCustomElectronEnvironment } from "@main/infra/electron";
+import { startMetricsLogging } from "@main/infra/metrics";
 import { serverMain } from "@main/ipc/serverEvents";
 import { runLifecycle, setLifecycleContext } from "@main/lifecycle";
 import { thumbnailCache } from "@main/services/thumbnailCache";
@@ -17,6 +18,7 @@ import { app, BrowserWindow, protocol } from "electron";
 import "@main/trpc/routers/track";
 
 initializeCustomElectronEnvironment();
+startMetricsLogging();
 const log = logger.child("main");
 
 const runApp = async function () {
