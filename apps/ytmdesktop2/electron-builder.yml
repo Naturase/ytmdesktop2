@@ -1,9 +1,16 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/electron-userland/electron-builder/refs/heads/master/packages/app-builder-lib/scheme.json
 
-appId: net.venipa.ytmdesktop
-productName: YouTube Music for Desktop
+# Personal Windows build: own identity so it installs side by side with the official app
+# (separate install dir, uninstall entry, %APPDATA% folder, single-instance lock).
+appId: net.personal.ytmdesktop
+productName: YouTube Music Personal
 extraMetadata:
-  name: YouTube Music for Desktop
+  name: YouTube Music Personal
+# Only ship the Chromium locales actually used (es-419 = Latin American Spanish).
+electronLanguages:
+  - es
+  - es-419
+  - en-US
 directories:
   buildResources: build
 files:
@@ -30,8 +37,8 @@ protocols:
     schemes:
       - ytmd
 win:
-  executableName: ytmdesktop
-  artifactName: ${name}-${version}-setup.${ext}
+  executableName: ytmdesktop-personal
+  artifactName: ytmdesktop-personal-${version}-setup.${ext}
   compression: maximum
   target:
     - target: nsis
@@ -178,6 +185,5 @@ afterPack: ./scripts/afterPack.js
 # hoisted root node_modules/electron from apps/ytmdesktop2.
 electronVersion: 43.7.7
 npmRebuild: false
-publish:
-  - provider: github
-    releaseType: draft
+# Personal build: no GitHub releases (auto-updater is disabled too).
+publish: null
